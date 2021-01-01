@@ -115,36 +115,46 @@ var Ppu = /** @class */ (function () {
         for (var i = 0; i < 16; i++) {
             var setIndex = (i >> 2) & 0x03;
             var colIndex = i & 0x03;
-            var val = this.bus.read(0x3f00 + i);
+            // const val = this.bus.read(0x3f00 + i);
+            var val = 0;
+            if (i === 4 || i === 8 || i === 0xC) {
+                val = this.bus.paletteRAM.mem[0];
+            }
+            else {
+                val = this.bus.paletteRAM.mem[i];
+            }
             this.bgColorSet[setIndex][colIndex] = colors[val];
         }
         // Sprites
         for (var i = 0; i < 16; i++) {
             var setIndex = (i >> 2) & 0x03;
             var colIndex = i & 0x03;
-            var val = this.bus.read(0x3f10 + i);
+            var val = 0;
+            if (i === 0 || i === 4 || i === 8 || i === 0xC) {
+                val = this.bus.paletteRAM.mem[0];
+            }
+            else {
+                val = this.bus.paletteRAM.mem[0x10 + i];
+            }
+            // const val = this.bus.read(0x3f10 + i);
             this.spColorSet[setIndex][colIndex] = colors[val];
         }
     };
     Ppu.prototype.write = function (addr, data) {
         switch (addr) {
             case 0: {
-                // log(`Write ${data.toString(16)} to PPUCTRL`)
                 this.reg.PPUCTRL = data;
                 return;
             }
             case 1: {
-                // log(`Write ${data.toString(16)} to PPUMASK`)
                 this.reg.PPUMASK = data;
                 return;
             }
             case 3: {
-                // log(`Write ${data.toString(16)} to OAMADDR`)
                 this.reg.OAMADDR = data;
                 return;
             }
             case 4: {
-                // log(`Write ${data.toString(16)} to OAMDATA`)
                 this.oam.write(this.reg.OAMADDR, data);
                 this.reg.OAMADDR++;
                 return;
@@ -157,7 +167,6 @@ var Ppu = /** @class */ (function () {
                 // must
                 this.reg.PPUADDR =
                     ((this.reg.PPUADDR << 8) | (data & 0xff)) & 0xffff;
-                // log(`%cPPUADDR: 0x${this.reg.PPUADDR.toString(16)}`, 'color: red');
                 return;
             }
             case 7: {
@@ -170,7 +179,6 @@ var Ppu = /** @class */ (function () {
                 else {
                     this.reg.PPUADDR += 1;
                 }
-                // log(`%cPPUDATA <= 0x${data.toString(16)}`, 'color: green');
                 return;
             }
             default: {
@@ -181,20 +189,22 @@ var Ppu = /** @class */ (function () {
     Ppu.prototype.read = function (addr) {
         switch (addr) {
             case 2: {
-                // 0x2002
-                // log(`Read from PPUSTATUS`)
                 var val = this.reg.PPUSTATUS;
                 this.reg.PPUSTATUS &= 0x7f;
                 return val;
             }
             case 4: {
-                // log(`Read from OAMDATA`)
-                // return this.reg.OAMDATA;
                 return this.oam.read(this.reg.OAMADDR++);
             }
             case 7: {
-                // log(`Read from PPUDATA`)
-                return this.bus.read(this.reg.PPUADDR++);
+                var addr_1 = this.reg.PPUADDR;
+                if ((this.reg.PPUCTRL & 0x04) === 0x04) {
+                    this.reg.PPUADDR += 32;
+                }
+                else {
+                    this.reg.PPUADDR += 1;
+                }
+                return this.bus.read(addr_1);
             }
             default: {
                 return 0;
@@ -225,18 +235,33 @@ var Ppu = /** @class */ (function () {
                 var _a = this.spColorSet[attr & 0x3][colorInfo], r = _a[0], g = _a[1], b = _a[2];
                 var color = { r: r, g: g, b: b };
                 if (colorInfo !== 0) {
-                    this.dot(u + x, v + y, color);
+                    var s = u + x;
+                    var t = v + y;
+                    if ((attr & 0x80) === 0x80) {
+                        t = v + 7 - y;
+                    }
+                    if ((attr & 0x40) === 0x40) {
+                        s = u + 7 - x;
+                    }
+                    this.dot(s, t, color);
                 }
             }
         }
     };
     Ppu.prototype.drawBackground = function (colorSet, charAddr, u, v) {
+        var bgPatternTableAddr;
+        if ((this.reg.PPUCTRL & 0x10) === 0x10) {
+            bgPatternTableAddr = 0x1000;
+        }
+        else {
+            bgPatternTableAddr = 0x0000;
+        }
         for (var y = 0; y < 8; y++) {
             for (var x = 0; x < 8; x++) {
-                var b0 = (this.bus.patternTables.mem[charAddr * 16 + y + 0] >>
+                var b0 = (this.bus.patternTables.mem[bgPatternTableAddr + charAddr * 16 + y + 0] >>
                     (7 - x)) &
                     0x1;
-                var b1 = (this.bus.patternTables.mem[charAddr * 16 + y + 8] >>
+                var b1 = (this.bus.patternTables.mem[bgPatternTableAddr + charAddr * 16 + y + 8] >>
                     (7 - x)) &
                     0x1;
                 // const e: number = Math.floor((b1 * 2 + b0) / 3.0 * 255);
@@ -254,9 +279,20 @@ var Ppu = /** @class */ (function () {
         for (var v = 0; v < 30; v++) {
             for (var u = 0; u < 32; u++) {
                 var addr = ((v << 5) | (u & 0xff)) & 0x3ff;
-                var charAddr = this.bus.nameTables.read(addr);
+                // const charAddr: number = this.bus.nameTables.read(addr);
+                var charAddr = this.bus.nameTables.mem[addr];
+                // const charAddr: number = ((v << 5) | (u & 0xff)) & 0x3ff;
                 var bgPaletteOffset = ((v << 1) & 0x38) | ((u >> 2) & 0x7);
-                var paletteInfo = this.bus.read(0x23c0 + bgPaletteOffset);
+                var bgPaletteAddr = 0x23c0 + bgPaletteOffset;
+                if (bgPaletteAddr === 0x23c4 || bgPaletteAddr === 0x23c8 || bgPaletteAddr === 0x23cc) {
+                    bgPaletteAddr = 0x23C0;
+                    console.log("???");
+                }
+                // const paletteInfo: number = this.bus.read(
+                //     0x23c0 + bgPaletteOffset
+                // );
+                var paletteInfo = this.bus.nameTables.mem[0x03c0 + bgPaletteOffset];
+                // const paletteInfo = this.bus.paletteRAM.mem[bgPaletteOffset];
                 var select = (v & 0x02) | ((u >> 1) & 0x1);
                 var colorSet = (paletteInfo >> (select * 2)) & 0x03;
                 this.drawBackground(colorSet, charAddr, u, v);

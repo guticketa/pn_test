@@ -1,4 +1,7 @@
 import { CpuBus } from './cpubus.js';
+function debugLog(s) {
+    console.log(s);
+}
 var opDict = {
     0x69: { mode: 'immediate', name: 'ADC', cycle: 2 },
     0x65: { mode: 'zeropage', name: 'ADC', cycle: 3 },
@@ -279,7 +282,6 @@ var Cpu = /** @class */ (function () {
             PC: 0
         };
         this.bus = new CpuBus();
-        this.hasBranched = false;
         this.debug = false;
         this.instrLog = false;
     }
@@ -292,8 +294,10 @@ var Cpu = /** @class */ (function () {
             return;
         }
         var programROMSize = data[4];
+        var chrROMSize = data[5];
         var flags6 = data[6];
         var programROMStart = 0x10;
+        console.log(programROMSize, chrROMSize, flags6, programROMStart);
         if ((flags6 & 0x4) !== 0) {
             console.log('trainer');
         }
@@ -379,7 +383,6 @@ var Cpu = /** @class */ (function () {
     };
     Cpu.prototype.branch = function (addr) {
         this.reg.PC = addr;
-        this.hasBranched = true;
     };
     Cpu.prototype.pushStatus = function () {
         var status = (boolToUint8(this.reg.P.N) << 7) |
@@ -412,6 +415,9 @@ var Cpu = /** @class */ (function () {
     };
     Cpu.prototype.decode = function (opcode) {
         var op = opDict[opcode];
+        if (op === undefined) {
+            console.log("opcode: " + opcode);
+        }
         return [op.name, op.mode, op.cycle];
     };
     Cpu.prototype.getAddrOrData = function (opcode) {
